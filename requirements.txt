@@ -1,0 +1,6 @@
+Flask
+requests
+mutagen
+tqdm
+pathlib 
+browser-cookie3 

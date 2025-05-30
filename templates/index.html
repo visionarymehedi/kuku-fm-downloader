@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KuKu FM Harvester</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎧</text></svg>">
+    <link rel="stylesheet" href="{{ url_for('serve_static_files', filename='css/style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    </head>
+<body>
+    <div class="master-container">
+        <aside class="sidebar">
+            <div class="logo-container">
+                <span class="logo-icon">🎧</span>
+                <h1 class="logo-text">KuKu<span class="logo-text-alt">Harvester</span></h1>
+            </div>
+            <nav class="main-nav">
+                <ul>
+                    <li><a href="#downloader-section" class="nav-active"><span class="nav-icon">⬇️</span> Downloader</a></li>
+                    <li><a href="#status-section"><span class="nav-icon">📊</span> Status Log</a></li>
+                    <li><a href="#settings-section"><span class="nav-icon">⚙️</span> Settings (Future)</a></li>
+                </ul>
+            </nav>
+            <div class="sidebar-footer">
+                <p>&copy; 2024 KuKu Harvester</p>
+            </div>
+        </aside>
+
+        <main class="content-area">
+            <header class="main-header">
+                <h2>Dashboard</h2>
+                <div class="header-actions">
+                    <button class="action-btn" id="themeToggleBtn" aria-label="Toggle Theme">🌓</button>
+                </div>
+            </header>
+
+            <section id="downloader-section" class="content-section active-section">
+                <div class="section-header">
+                    <h3><span class="icon">🔗</span> Enter Show Details</h3>
+                </div>
+                <form id="downloadForm" class="download-form">
+                    <div class="form-grid">
+                        <div class="form-group full-width">
+                            <label for="kuku_url">KuKu FM Show URL</label>
+                            <div class="input-with-icon">
+                                <span class="input-icon">🌐</span>
+                                <input type="url" id="kuku_url" name="kuku_url" placeholder="e.g., https://kukufm.com/show/your-epic-show" required>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="download_path">Custom Subfolder Name (Server-Side)</label>
+                             <div class="input-with-icon">
+                                <span class="input-icon">📁</span>
+                                <input type="text" id="download_path" name="download_path" placeholder="My Awesome Show (Optional)">
+                            </div>
+                            <small>Organize downloads on the server. If blank, a default structure is used.</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="convert_format">Convert Audio To (e.g., mp3)</label>
+                            <div class="input-with-icon">
+                                <span class="input-icon">🎵</span>
+                                <input type="text" id="convert_format" name="convert_format" placeholder="mp3 (Optional)">
+                            </div>
+                             <small>Leave blank to keep original .m4a format.</small>
+                        </div>
+                    </div>
+
+                    <div class="form-group checkbox-group full-width">
+                        <input type="checkbox" id="export_metadata" name="export_metadata" value="true">
+                        <label for="export_metadata" class="checkbox-label">Export Show & Episode Metadata (JSON)</label>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="button-submit" id="submitDownloadBtn">
+                            <span class="btn-icon">🚀</span>
+                            <span class="btn-text">Initiate Download</span>
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <section id="status-section" class="content-section">
+                <div class="section-header">
+                    <h3><span class="icon">📊</span> Live Status & Download Links</h3>
+                </div>
+                <div class="status-log-container">
+                    <div id="statusMessages" class="status-messages-area">
+                        <div class="status-placeholder">
+                            <span class="placeholder-icon">⏳</span>
+                            <p>Your download progress and links will appear here.</p>
+                            <small>Awaiting your command!</small>
+                        </div>
+                    </div>
+                </div>
+                <div id="progressContainer" class="progress-container" style="display: none;">
+                    <p id="progressText">Processing...</p>
+                    <div class="progress-bar-wrapper">
+                        <div id="progressBar" class="progress-bar-inner"></div>
+                    </div>
+                </div>
+            </section>
+            
+            <section id="settings-section" class="content-section" style="display:none;">
+                 <div class="section-header">
+                    <h3><span class="icon">⚙️</span> Application Settings (Future)</h3>
+                </div>
+                <p>Future settings like default download directory, cookie management, theme preferences, etc., will go here.</p>
+            </section>
+
+        </main>
+    </div>
+
+    <script src="{{ url_for('serve_static_files', filename='js/script.js') }}"></script>
+</body>
+</html>

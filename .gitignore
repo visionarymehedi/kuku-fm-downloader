@@ -1,0 +1,103 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+instance/
+MANIFEST.in
+
+# Virtual environment
+venv/
+env/
+ENV/
+.venv/
+.env
+pip-freeze.txt
+requirements.lock
+
+# IDE and editor specific files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+nbproject/
+*.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Log files
+*.log
+failed_shows.log # If you create this for retry logic
+
+# Downloaded content and generated ZIPs
+# These directories can become very large and contain user-specific data
+# Ensure these match the directory names used in your app.py
+Downloaded_Shows_Content/
+Downloaded_Shows_Web/ # From kuku_downloader.py default
+_zips_for_user_download/
+_zips_for_download/ # From an earlier version of app.py
+
+# Sensitive files
+cookies.json # This contains user-specific authentication cookies
+# Add any other files containing secrets or local configurations, e.g.,
+# local_settings.py
+# .env.*.local
+# .env.local
+# config.ini (if it contains secrets)
+
+# Flask session files (if using filesystem sessions, default is signed cookie)
+.flask_session/
+
+# Coverage reports
+.coverage
+coverage.xml
+htmlcov/
+pytest_cache/
+.pytest_cache/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+*.patch
+*.diff
+
+# Local database files (if you were to add a DB like SQLite for task management)
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal # SQLite journal file
+
+# Packaging & Build artifacts
+*.tar.gz
+*.tgz
+*.bz2
+*.deb
+*.rpm
+# Be careful with *.zip if you have legitimate ZIPs you *want* to track.
+# The _zips_for_user_download/ above handles the app's output zips.
+*.whl
+MANIFEST
+
+# Notebook checkpoints
+.ipynb_checkpoints
+
+# Mutagen specific temp files (if any, though usually not an issue)
+# *.tags.bak (example, may not be standard)
+
+# Operating System specific files
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+ehthumbs_vista.db
+
+# Security related - if using tools like bandit
+.bandit
