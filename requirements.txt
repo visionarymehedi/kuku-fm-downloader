@@ -4,3 +4,4 @@ mutagen
 tqdm
 pathlib 
 browser-cookie3 
+flask_apscheduler
