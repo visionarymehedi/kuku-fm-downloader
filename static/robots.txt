@@ -1,15 +1,14 @@
-@app.route('/robots.txt')
-def robots_txt():
-    robots_content = """User-agent: *
+User-agent: *
 Allow: /
 Allow: /static/
+
+
 Disallow: /api/
+Disallow: /download
 Disallow: /status/
 Disallow: /fetch_zip/
-Disallow: /download
+Disallow: /favicon.ico # If you are serving a 204, no need for it to be crawled
 
-Sitemap: {base_url}/sitemap.xml
-""".format(base_url=request.url_root.rstrip('/'))
-    response = make_response(robots_content)
-    response.headers["Content-Type"] = "text/plain"
-    return response
+# Specify the location of your sitemap
+
+Sitemap: https://kuku-fm-web-downloader.onrender.com/sitemap.xml
