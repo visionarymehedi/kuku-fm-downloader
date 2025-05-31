@@ -20,6 +20,7 @@ except ImportError as e:
 
 class Config:
     SCHEDULER_API_ENABLED = True
+    # SCHEDULER_TIMEZONE = "Asia/Dhaka" # Example - Set your server's timezone
 
 app = Flask(__name__)
 app.config.from_object(Config())
@@ -27,12 +28,13 @@ app.secret_key = os.urandom(24)
 
 APP_ROOT = Path(__file__).resolve().parent
 
+# --- Path Configurations with Render Persistent Disk Support ---
 RENDER_DISK_MOUNT_PATH_STR = os.environ.get('RENDER_DISK_MOUNT_PATH')
 if RENDER_DISK_MOUNT_PATH_STR:
     PERSISTENT_STORAGE_ROOT = Path(RENDER_DISK_MOUNT_PATH_STR)
     logging.info(f"RENDER_DISK_MOUNT_PATH found: Using {PERSISTENT_STORAGE_ROOT} for persistent storage.")
 else:
-    PERSISTENT_STORAGE_ROOT = APP_ROOT 
+    PERSISTENT_STORAGE_ROOT = APP_ROOT # Fallback to local for development
     logging.info(f"RENDER_DISK_MOUNT_PATH not found. Using local app root {APP_ROOT} for storage.")
 
 DOWNLOAD_BASE_DIR = PERSISTENT_STORAGE_ROOT / "Downloaded_Shows_Content" 
@@ -54,11 +56,19 @@ def cleanup_old_files_job():
         logging.info("SCHEDULER: Running cleanup job for old files...")
         now = time.time()
         
-        max_age_seconds_zip = 1 * 60 * 60      
-        max_age_seconds_content = 2 * 60 * 60  
+        # --- Timing Configuration for Cleanup ---
+        # Files older than 5 minutes will be targeted for deletion
+        max_age_seconds_zip = 5 * 60      # 5 minutes for ZIPs
+        max_age_seconds_content = 5 * 60  # 5 minutes for raw content
         
+        # For normal operation (e.g., ZIPs last 1-6 hours)
+        # max_age_seconds_zip = 1 * 60 * 60      # Default: 1 hour for ZIPs
+        # max_age_seconds_content = 2 * 60 * 60  # Default: 2 hours for raw content
+        # --- End Timing Configuration ---
+
+
         deleted_zips_count = 0
-        logging.info(f"SCHEDULER: Checking ZIPs in {ZIP_STORAGE_DIR.resolve()}")
+        logging.info(f"SCHEDULER: Checking ZIPs in {ZIP_STORAGE_DIR.resolve()} (Max age: {max_age_seconds_zip}s)")
         for item in ZIP_STORAGE_DIR.iterdir():
             try:
                 if item.is_file() and item.suffix.lower() == '.zip':
@@ -70,10 +80,11 @@ def cleanup_old_files_job():
             except Exception as e:
                 logging.error(f"SCHEDULER: Error deleting ZIP {item.name}: {e}")
         if deleted_zips_count > 0: logging.info(f"SCHEDULER: Deleted {deleted_zips_count} old ZIP file(s).")
-        else: logging.info(f"SCHEDULER: No old ZIPs found matching criteria in {ZIP_STORAGE_DIR.resolve()}.")
+        # else: logging.info(f"SCHEDULER: No old ZIPs found matching criteria in {ZIP_STORAGE_DIR.resolve()}.")
+
 
         deleted_content_folders_count = 0
-        logging.info(f"SCHEDULER: Checking content folders in {DOWNLOAD_BASE_DIR.resolve()}")
+        logging.info(f"SCHEDULER: Checking content folders in {DOWNLOAD_BASE_DIR.resolve()} (Max age: {max_age_seconds_content}s)")
         for lang_dir in DOWNLOAD_BASE_DIR.iterdir():
             if lang_dir.is_dir():
                 for type_dir in lang_dir.iterdir():
@@ -89,10 +100,13 @@ def cleanup_old_files_job():
                                 except Exception as e_show:
                                     logging.error(f"SCHEDULER: Error deleting show content folder {show_dir.name}: {e_show}")
         if deleted_content_folders_count > 0: logging.info(f"SCHEDULER: Deleted {deleted_content_folders_count} old show content folder(s).")
-        else: logging.info(f"SCHEDULER: No old content folders found matching criteria in {DOWNLOAD_BASE_DIR.resolve()}.")
+        # else: logging.info(f"SCHEDULER: No old content folders matching criteria in {DOWNLOAD_BASE_DIR.resolve()}.")
+
         
         cleaned_tasks = 0; tasks_to_delete = []
-        max_task_status_age_seconds = max_age_seconds_zip + (15 * 60) 
+        # Clean up task statuses slightly after their corresponding ZIPs/content would have expired
+        max_task_status_age_seconds = max_age_seconds_zip + (2 * 60) # e.g., 2 mins after ZIP expiry
+
         for task_id, task_info in list(download_tasks_status.items()):
             task_timestamp = task_info.get("timestamp", 0) 
             if task_info.get("status") != "processing" and (now - task_timestamp) > max_task_status_age_seconds:
@@ -106,13 +120,27 @@ if not scheduler.running:
     scheduler.init_app(app)
     scheduler.start()
     logging.info("APScheduler initialized and started.")
-    cleanup_job_interval_minutes = 30 
+    
+    # --- Scheduler Interval Configuration ---
+    # For 5-minute file expiry, run cleanup job e.g., every 1 minute
+    cleanup_job_interval_minutes = 1 
     trigger_args = {'minutes': cleanup_job_interval_minutes}
+    
+    # For normal operation (e.g., run every 30 minutes for hourly cleanup)
+    # cleanup_job_interval_minutes = 30 
+    # trigger_args = {'minutes': cleanup_job_interval_minutes}
+    
+    # For very quick testing (e.g., run every 20 seconds for 1-minute expiry)
+    # cleanup_job_interval_seconds = 20
+    # trigger_args = {'seconds': cleanup_job_interval_seconds}
+    # --- End Scheduler Interval Configuration ---
+
     if not scheduler.get_job('cleanup_files_job_id'):
         scheduler.add_job(id='cleanup_files_job_id', func=cleanup_old_files_job, trigger='interval', **trigger_args) 
         logging.info(f"SCHEDULER: Cleanup job scheduled with interval: {trigger_args}")
     else: logging.info("SCHEDULER: Cleanup job already scheduled.")
 
+# --- Flask Routes ---
 @app.route('/')
 def index(): return render_template('index.html')
 
@@ -152,7 +180,6 @@ def start_download_route():
                 total_eps = downloader.metadata.get('nEpisodes', 0)
                 download_tasks_status[current_task_id].update({"show_title":show_title,"total_episodes":total_eps,"message":f"Preparing '{show_title}'...","timestamp":time.time()})
 
-                # <<< CORRECTED PARAMETER NAMES IN CALLBACK DEFINITION >>>
                 def episode_progress_cb(episode_title: str, success: bool, processed_count: int, total_episodes: int, status_message: str):
                     task_data = download_tasks_status.get(current_task_id)
                     if task_data:
@@ -218,7 +245,7 @@ def fetch_zip_file(filename_to_serve):
         logging.error(f"Error serving ZIP '{safe_filename}': {e}",exc_info=True)
         return jsonify({"status":"error","message":"Could not serve ZIP."}),500
 
-@app.route('/api/data', methods=['GET'])
+@app.route('/api/data', methods=['GET']) 
 def api_data():
     logging.info("Placeholder /api/data endpoint was reached.")
     return jsonify({"message": "This is the /api/data endpoint.","status": "ok"})
