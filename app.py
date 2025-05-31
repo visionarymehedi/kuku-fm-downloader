@@ -154,9 +154,9 @@ def sitemap_xml():
 # --- Google Site Verification Route ---
 # IMPORTANT: Replace 'google1234567890abcdef.html' with the actual filename Google provided you.
 # Also, make sure this HTML file is in the ROOT directory of your project (same level as app.py).
-@app.route('/google1234567890abcdef.html')
+@app.route('/googledad6d15cd3afffd7.html')
 def google_verification():
-    google_file_name = 'google1234567890abcdef.html' # Replace with your actual file name
+    google_file_name = 'googledad6d15cd3afffd7.html' # Replace with your actual file name
     try:
         # Serve from APP_ROOT (where app.py is)
         return send_from_directory(str(APP_ROOT), google_file_name)
