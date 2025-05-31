@@ -252,7 +252,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function displayDownloadLinkComponent(taskId, fileType, filename, linkText) {
         const downloadLink = document.createElement('a');
-        downloadLink.href = `/fetch_file/${fileType}/${encodeURIComponent(filename)}`;
+        downloadLink.href = `/fetch_zip/${encodeURIComponent(filename)}`;
         downloadLink.textContent = linkText;
         downloadLink.classList.add('download-link-button'); 
         downloadLink.setAttribute('download', filename); 
