@@ -1,5 +1,5 @@
 # app.py
-from flask import Flask, render_template, request, jsonify, send_from_directory, Response
+from flask import Flask, render_template, request, jsonify, send_from_directory, Response, session
 from pathlib import Path
 import threading
 import os
@@ -9,6 +9,7 @@ import uuid
 import zipfile 
 import shutil 
 import time 
+import json # <<< IMPORT ADDED HERE
 from flask_apscheduler import APScheduler 
 
 try:
@@ -20,21 +21,20 @@ except ImportError as e:
 
 class Config:
     SCHEDULER_API_ENABLED = True
-    # SCHEDULER_TIMEZONE = "Asia/Dhaka" # Example - Set your server's timezone
+    SECRET_KEY = os.environ.get('FLASK_SECRET_KEY', os.urandom(32))
+
 
 app = Flask(__name__)
 app.config.from_object(Config())
-app.secret_key = os.urandom(24) 
 
 APP_ROOT = Path(__file__).resolve().parent
 
-# --- Path Configurations with Render Persistent Disk Support ---
 RENDER_DISK_MOUNT_PATH_STR = os.environ.get('RENDER_DISK_MOUNT_PATH')
 if RENDER_DISK_MOUNT_PATH_STR:
     PERSISTENT_STORAGE_ROOT = Path(RENDER_DISK_MOUNT_PATH_STR)
     logging.info(f"RENDER_DISK_MOUNT_PATH found: Using {PERSISTENT_STORAGE_ROOT} for persistent storage.")
 else:
-    PERSISTENT_STORAGE_ROOT = APP_ROOT # Fallback to local for development
+    PERSISTENT_STORAGE_ROOT = APP_ROOT 
     logging.info(f"RENDER_DISK_MOUNT_PATH not found. Using local app root {APP_ROOT} for storage.")
 
 DOWNLOAD_BASE_DIR = PERSISTENT_STORAGE_ROOT / "Downloaded_Shows_Content" 
@@ -56,19 +56,10 @@ def cleanup_old_files_job():
         logging.info("SCHEDULER: Running cleanup job for old files...")
         now = time.time()
         
-        # --- Timing Configuration for Cleanup ---
-        # Files older than 5 minutes will be targeted for deletion
-        max_age_seconds_zip = 5 * 60      # 5 minutes for ZIPs
-        max_age_seconds_content = 5 * 60  # 5 minutes for raw content
+        max_age_seconds_zip = 1 * 60 * 60      
+        max_age_seconds_content = 2 * 60 * 60  
         
-        # For normal operation (e.g., ZIPs last 1-6 hours)
-        # max_age_seconds_zip = 1 * 60 * 60      # Default: 1 hour for ZIPs
-        # max_age_seconds_content = 2 * 60 * 60  # Default: 2 hours for raw content
-        # --- End Timing Configuration ---
-
-
         deleted_zips_count = 0
-        logging.info(f"SCHEDULER: Checking ZIPs in {ZIP_STORAGE_DIR.resolve()} (Max age: {max_age_seconds_zip}s)")
         for item in ZIP_STORAGE_DIR.iterdir():
             try:
                 if item.is_file() and item.suffix.lower() == '.zip':
@@ -80,11 +71,8 @@ def cleanup_old_files_job():
             except Exception as e:
                 logging.error(f"SCHEDULER: Error deleting ZIP {item.name}: {e}")
         if deleted_zips_count > 0: logging.info(f"SCHEDULER: Deleted {deleted_zips_count} old ZIP file(s).")
-        # else: logging.info(f"SCHEDULER: No old ZIPs found matching criteria in {ZIP_STORAGE_DIR.resolve()}.")
-
 
         deleted_content_folders_count = 0
-        logging.info(f"SCHEDULER: Checking content folders in {DOWNLOAD_BASE_DIR.resolve()} (Max age: {max_age_seconds_content}s)")
         for lang_dir in DOWNLOAD_BASE_DIR.iterdir():
             if lang_dir.is_dir():
                 for type_dir in lang_dir.iterdir():
@@ -100,13 +88,9 @@ def cleanup_old_files_job():
                                 except Exception as e_show:
                                     logging.error(f"SCHEDULER: Error deleting show content folder {show_dir.name}: {e_show}")
         if deleted_content_folders_count > 0: logging.info(f"SCHEDULER: Deleted {deleted_content_folders_count} old show content folder(s).")
-        # else: logging.info(f"SCHEDULER: No old content folders matching criteria in {DOWNLOAD_BASE_DIR.resolve()}.")
-
         
         cleaned_tasks = 0; tasks_to_delete = []
-        # Clean up task statuses slightly after their corresponding ZIPs/content would have expired
-        max_task_status_age_seconds = max_age_seconds_zip + (2 * 60) # e.g., 2 mins after ZIP expiry
-
+        max_task_status_age_seconds = max_age_seconds_zip + (15 * 60) 
         for task_id, task_info in list(download_tasks_status.items()):
             task_timestamp = task_info.get("timestamp", 0) 
             if task_info.get("status") != "processing" and (now - task_timestamp) > max_task_status_age_seconds:
@@ -120,32 +104,62 @@ if not scheduler.running:
     scheduler.init_app(app)
     scheduler.start()
     logging.info("APScheduler initialized and started.")
-    
-    # --- Scheduler Interval Configuration ---
-    # For 5-minute file expiry, run cleanup job e.g., every 1 minute
-    cleanup_job_interval_minutes = 1 
+    cleanup_job_interval_minutes = 30 
     trigger_args = {'minutes': cleanup_job_interval_minutes}
-    
-    # For normal operation (e.g., run every 30 minutes for hourly cleanup)
-    # cleanup_job_interval_minutes = 30 
-    # trigger_args = {'minutes': cleanup_job_interval_minutes}
-    
-    # For very quick testing (e.g., run every 20 seconds for 1-minute expiry)
-    # cleanup_job_interval_seconds = 20
-    # trigger_args = {'seconds': cleanup_job_interval_seconds}
-    # --- End Scheduler Interval Configuration ---
-
     if not scheduler.get_job('cleanup_files_job_id'):
         scheduler.add_job(id='cleanup_files_job_id', func=cleanup_old_files_job, trigger='interval', **trigger_args) 
         logging.info(f"SCHEDULER: Cleanup job scheduled with interval: {trigger_args}")
     else: logging.info("SCHEDULER: Cleanup job already scheduled.")
 
-# --- Flask Routes ---
 @app.route('/')
 def index(): return render_template('index.html')
 
 @app.route('/favicon.ico')
 def favicon(): return Response(status=204)
+
+@app.route('/api/set_user_cookies', methods=['POST'])
+def set_user_cookies():
+    data = request.get_json()
+    if not data or 'cookies_json_string' not in data:
+        return jsonify({"status": "error", "message": "No cookie data provided."}), 400
+
+    cookies_json_string = data['cookies_json_string']
+    try:
+        parsed_cookies = json.loads(cookies_json_string) # Now json is defined
+        if not isinstance(parsed_cookies, list):
+            raise ValueError("Cookie data must be a JSON array of cookie objects.")
+        
+        for cookie_obj in parsed_cookies:
+            if not all(k in cookie_obj for k in ('name', 'value')):
+                raise ValueError("Each cookie object must have 'name' and 'value' keys.")
+        
+        session['user_kuku_cookies'] = parsed_cookies 
+        logging.info(f"User cookies set in session. Count: {len(parsed_cookies)}")
+        return jsonify({"status": "success", "message": "Cookies saved successfully for this session."})
+    except json.JSONDecodeError: # Now json is defined
+        logging.warning("Failed to parse user cookie JSON string.")
+        return jsonify({"status": "error", "message": "Invalid JSON format for cookies."}), 400
+    except ValueError as ve:
+        logging.warning(f"Invalid cookie data structure: {ve}")
+        return jsonify({"status": "error", "message": str(ve)}), 400
+    except Exception as e:
+        logging.error(f"Error setting user cookies: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": "An unexpected error occurred while saving cookies."}), 500
+
+@app.route('/api/clear_user_cookies', methods=['POST'])
+def clear_user_cookies():
+    if 'user_kuku_cookies' in session:
+        del session['user_kuku_cookies']
+        logging.info("User cookies cleared from session.")
+        return jsonify({"status": "success", "message": "Your custom cookies have been cleared."})
+    return jsonify({"status": "info", "message": "No custom cookies were set to clear."})
+
+@app.route('/api/check_user_cookies', methods=['GET'])
+def check_user_cookies():
+    if 'user_kuku_cookies' in session and session['user_kuku_cookies']:
+        return jsonify({"status": "success", "cookies_set": True, "message": "User cookies are currently set."})
+    return jsonify({"status": "info", "cookies_set": False, "message": "No user cookies are currently set."})
+
 
 @app.route('/download', methods=['POST'])
 def start_download_route():
@@ -160,11 +174,18 @@ def start_download_route():
             return jsonify({"status":"warning", "message":f"Download for {kuku_url} is already processing."}), 409
 
     download_path_for_kuku_instance = DOWNLOAD_BASE_DIR 
-    cookies_file_for_kuku = str(DEFAULT_COOKIES_FILE) if DEFAULT_COOKIES_FILE.exists() else None
+    
+    user_specific_cookies_list = session.get('user_kuku_cookies') 
+    server_default_cookies_file = None
+    if not user_specific_cookies_list: 
+        server_default_cookies_file = str(DEFAULT_COOKIES_FILE) if DEFAULT_COOKIES_FILE.exists() else None
+        logging.info(f"Task {task_id}: No user-specific cookies in session, using server default: {server_default_cookies_file}")
+    else:
+        logging.info(f"Task {task_id}: Using user-specific cookies from session ({len(user_specific_cookies_list)} cookies).")
     
     logging.info(f"Download request for URL: {kuku_url} -> Task ID: {task_id}")
         
-    def download_task_wrapper(app_ctx, current_task_id, url, cookies_p, dl_path_kuku):
+    def download_task_wrapper(app_ctx, current_task_id, url, srv_cookies_p, user_cookies_l, dl_path_kuku):
         threading.current_thread().name = f"Downloader-{current_task_id[:8]}"
         start_time = time.time() 
         download_tasks_status[current_task_id] = {
@@ -175,7 +196,14 @@ def start_download_route():
         downloader = None 
         try:
             with app_ctx: 
-                downloader = KuKu(url=url, cookies_file_path=cookies_p, show_content_download_root_dir=dl_path_kuku)
+                logging.info(f"Thread: Initializing KuKu for {url} (Task: {current_task_id})")
+                downloader = KuKu(
+                    url=url, 
+                    cookies_file_path=srv_cookies_p, 
+                    user_cookies_list=user_cookies_l, 
+                    show_content_download_root_dir=dl_path_kuku
+                )
+                
                 show_title = downloader.metadata.get('title', 'Unknown Show')
                 total_eps = downloader.metadata.get('nEpisodes', 0)
                 download_tasks_status[current_task_id].update({"show_title":show_title,"total_episodes":total_eps,"message":f"Preparing '{show_title}'...","timestamp":time.time()})
@@ -209,7 +237,10 @@ def start_download_route():
 
     try:
         thread = threading.Thread(target=download_task_wrapper, name=f"TaskMgr-{task_id[:8]}",
-                                  args=(app.app_context(), task_id, kuku_url, cookies_file_for_kuku, download_path_for_kuku_instance)) 
+                                  args=(app.app_context(), task_id, kuku_url, 
+                                        server_default_cookies_file, 
+                                        user_specific_cookies_list,  
+                                        download_path_for_kuku_instance)) 
         thread.start()
         download_tasks_status[task_id] = {"status": "processing_queued", "message": "Download initiated...", "task_id": task_id, "url": kuku_url, "show_title": "Fetching...", "episode_updates": [], "timestamp": time.time()}
         return jsonify({"status": "processing_queued", "message": f"Download for {kuku_url} initiated.", "task_id": task_id})

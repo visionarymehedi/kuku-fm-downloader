@@ -1,0 +1,15 @@
+@app.route('/robots.txt')
+def robots_txt():
+    robots_content = """User-agent: *
+Allow: /
+Allow: /static/
+Disallow: /api/
+Disallow: /status/
+Disallow: /fetch_zip/
+Disallow: /download
+
+Sitemap: {base_url}/sitemap.xml
+""".format(base_url=request.url_root.rstrip('/'))
+    response = make_response(robots_content)
+    response.headers["Content-Type"] = "text/plain"
+    return response

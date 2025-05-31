@@ -3,31 +3,53 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-    <title>KuKu FM Downloader Pro | High Quality Audio & Metadata Harvester</title>
-    <meta name="description" content="Download KuKu FM shows easily with KuKu FM Downloader Pro. High quality audio, metadata export, and advanced options.">
-    <meta name="keywords" content="KuKu FM, audio downloader, podcast downloader, metadata export, mp3 converter, KuKu FM Harvester">
+    
+    <title>KuKu FM Downloader Pro | Fast & Secure Podcast & Audio Downloads</title>
+    
+    <meta name="description" content="KuKu FM Downloader Pro lets you securely download KuKu FM shows and podcasts using your own cookies. Enjoy fast, high-quality audio downloads. No server logs.">
+    <meta name="keywords" content="KuKu FM downloader, KuKu FM audio download, podcast downloader, KuKu FM cookies, KuKu FM Harvester, KuKu FM shows, download KuKu FM">
     <meta name="author" content="KuKu FM Downloader Pro Team">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://kuku-fm-web-downloader.onrender.com/">
+    <meta property="og:title" content="KuKu FM Downloader Pro | Fast & Secure Podcast & Audio Downloads">
+    <meta property="og:description" content="Use your KuKu FM cookies to securely download shows & podcasts. High-quality downloads with no tracking.">
+    <meta property="og:image" content="https://kuku-fm-web-downloader.onrender.com/static/preview-image.jpg"> <!-- Example preview image -->
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://kuku-fm-web-downloader.onrender.com/">
+    <meta property="twitter:title" content="KuKu FM Downloader Pro | Fast & Secure Podcast & Audio Downloads">
+    <meta property="twitter:description" content="Use your KuKu FM cookies to securely download shows & podcasts. High-quality downloads with no tracking.">
+    <meta property="twitter:image" content="https://kuku-fm-web-downloader.onrender.com/static/preview-image.jpg"> <!-- Example preview image -->
+
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎧</text></svg>">
+
+    <!-- CSS & Fonts -->
     <link rel="stylesheet" href="{{ url_for('serve_static_files', filename='css/style.css') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Orbitron:wght@500;700&display=swap" rel="stylesheet">
 </head>
+
 <body>
     <div class="master-container">
 
         <aside class="sidebar" role="navigation">
             <div class="logo-container">
                 <span class="logo-icon">🎧</span>
-                <h1 class="logo-text">KuKu<span class="logo-text-alt"><br>Downloader <br>Pro</span></h1>
+                <h1 class="logo-text">KuKu<span class="logo-text-alt"><br>Downloader<br> Pro</span></h1>
             </div>
             <nav class="main-nav">
                 <ul>
                     <li><a href="#downloader-section" class="nav-active"><span class="nav-icon">⬇️</span> <span class="nav-text">Downloader</span></a></li>
-                    </ul>
+                    <li><a href="#cookie-section"><span class="nav-icon">🍪</span> <span class="nav-text">My Cookies</span></a></li>
+                </ul>
             </nav>
             <div class="sidebar-footer">
-                <p>&copy; 2024 KuKu Downloader Pro</p>
+                <p>&copy; 2025 KuKu Downloader Pro</p>
+                <p class="disclaimer">Use responsibly. For personal backups only.</p>
             </div>
         </aside>
 
@@ -35,36 +57,62 @@
             <header class="main-header">
                 <button class="sidebar-toggle-btn" id="sidebarToggleBtn" aria-label="Toggle Sidebar">☰</button>
                 <div class="header-title-container">
-                    <h2 id="mainHeaderTitle">Downloader Dashboard</h2> 
-                    <p class="subtitle" id="mainHeaderSubtitle">Download your favorite shows with ease 🚀</p>
+                    <h2 id="mainHeaderTitle">Downloader</h2> 
+                    <p class="subtitle" id="mainHeaderSubtitle">Securely download your favorite shows using your own cookies.</p>
                 </div>
                 <div class="header-actions">
                     <button class="action-btn" id="themeToggleBtn" aria-label="Toggle Theme">🌓</button>
                 </div>
             </header>
 
+            <section id="cookie-section" class="content-section" aria-labelledby="cookie-section-title">
+                <div class="section-header">
+                    <h3 id="cookie-section-title"><span class="icon">🍪</span> Manage Your KuKu FM Cookies</h3>
+                </div>
+                <div class="cookie-form-container">
+                    <p class="cookie-instructions">
+                        To download content, especially premium shows, you need to provide your KuKu FM cookies. 
+                        This ensures the download uses your account permissions. Your cookies are stored securely in your browser session for this website and are not saved permanently on the server after your session ends.
+                    </p>
+                    <div class="form-group">
+                        <label for="cookieJsonInput">Paste your KuKu FM Cookies (JSON Array Format):</label>
+                        <textarea id="cookieJsonInput" rows="8" placeholder="[ {&quot;name&quot;: &quot;jwtToken&quot;, &quot;value&quot;: &quot;your_token_value&quot;, ...}, ... ]"></textarea>
+                        <small>Export cookies using a browser extension like "EditThisCookie" or "Cookie-Editor" as JSON.</small>
+                    </div>
+                    <div class="cookie-actions">
+                        <button type="button" class="button-submit" id="saveCookiesBtn"><span class="btn-icon">💾</span> Save Cookies for Session</button>
+                        <button type="button" class="button-alt" id="clearCookiesBtn"><span class="btn-icon">🗑️</span> Clear Saved Cookies</button>
+                    </div>
+                    <div id="cookieStatusMessage" class="cookie-status"></div>
+                </div>
+            </section>
+
             <section id="downloader-section" class="content-section active-section" aria-labelledby="downloader-section-title">
                 <div class="section-header">
-                    <h3 id="downloader-section-title"><span class="icon">🔗</span> Enter Show Details</h3>
+                    <h3 id="downloader-section-title"><span class="icon">🔗</span> Download Show</h3>
                 </div>
-                <form id="downloadForm" class="download-form">
-                    <div class="form-grid">
-                        <div class="form-group full-width">
-                            <label for="kuku_url">KuKu FM Show URL</label>
-                            <div class="input-with-icon">
-                                <span class="input-icon">🌐</span>
-                                <input type="url" id="kuku_url" name="kuku_url" placeholder="e.g., https://kukufm.com/show/your-epic-show" required>
+                <div id="downloaderFormContainer">
+                    <div class="cookie-notice-downloader" id="cookieNoticeDownloader">
+                        <p><span class="icon">⚠️</span> Please set your KuKu FM cookies in the "My Cookies" section to enable downloading.</p>
+                    </div>
+                    <form id="downloadForm" class="download-form hidden"> <div class="form-grid">
+                            <div class="form-group full-width">
+                                <label for="kuku_url">KuKu FM Show URL</label>
+                                <div class="input-with-icon">
+                                    <span class="input-icon">🌐</span>
+                                    <input type="url" id="kuku_url" name="kuku_url" placeholder="e.g., https://kukufm.com/show/your-epic-show" required>
+                                </div>
                             </div>
                         </div>
-                         </div>
 
-                    <div class="form-actions">
-                        <button type="submit" class="button-submit animated-button" id="submitDownloadBtn">
-                            <span class="btn-icon">🚀</span>
-                            <span class="btn-text">Initiate Download</span>
-                        </button>
-                    </div>
-                </form>
+                        <div class="form-actions">
+                            <button type="submit" class="button-submit animated-button" id="submitDownloadBtn">
+                                <span class="btn-icon">🚀</span>
+                                <span class="btn-text">Initiate Download</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
 
                 <div id="downloadProcessDisplay" class="download-process-display hidden">
                     <div class="section-header" style="margin-top: var(--space-xl); border-top: 1px solid var(--border-color); padding-top: var(--space-lg);">
@@ -77,8 +125,8 @@
                         </div>
                     </div>
                     <div class="status-log-container">
-                        <div id="statusMessages" class="status-messages-area" aria-live="polite">
-                            <div class="status-placeholder initial-placeholder">
+                         <div id="statusMessages" class="status-messages-area" aria-live="polite">
+                             <div class="status-placeholder initial-placeholder">
                                 <span class="placeholder-icon">📡</span>
                                 <p>Status updates will appear here once download begins.</p>
                             </div>
@@ -86,8 +134,8 @@
                     </div>
                 </div>
             </section>
-
-            </main>
+            
+        </main>
     </div>
 
     <script src="{{ url_for('serve_static_files', filename='js/script.js') }}"></script>

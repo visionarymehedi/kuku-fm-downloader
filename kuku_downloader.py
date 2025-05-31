@@ -10,48 +10,40 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from tqdm import tqdm 
 import sys 
-from typing import Callable, Any 
+from typing import Callable, Any, List, Dict # Added List and Dict for type hinting
 
 class KuKu:
     def __init__(self, url: str,
-                 cookies_file_path: str | None = None,
-                 # export_metadata_flag removed
+                 # cookies_file_path is for the server-side default cookies.json
+                 cookies_file_path: str | None = None, 
+                 # user_cookies_list is for cookies provided by the user via the web UI
+                 user_cookies_list: List[Dict[str, Any]] | None = None, 
                  show_content_download_root_dir: Path = Path("Downloaded_Content_Default_Root") 
                 ):
+        """
+        Initializes the KuKu downloader with the show URL and configurations.
+        User-provided cookies take precedence.
+        """
         self.showID = urlparse(url).path.split('/')[-1]
         self.session = requests.Session()
         self.current_show_url = url 
         
-        self.cookies_file_path_config = cookies_file_path
+        self.cookies_file_path_config = cookies_file_path # For server-side default cookies.json
+        self.user_provided_cookies_config = user_cookies_list # For user-inputted cookies
+        
         self.show_content_download_root_dir = Path(show_content_download_root_dir) 
         
         self.album_path: Path | None = None 
-        self.metadata_filename_generated: str | None = None # Though export is removed, keep for internal structure if needed later
+        self.metadata_filename_generated: str | None = None # Though export is removed, keep for potential future internal use
 
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
             "Referer": "https://kukufm.com/",
             "Origin": "https://kukufm.com",
-            "Authorization": "Bearer YOUR_BEARER_TOKEN_IF_ANY" 
+            "Authorization": "Bearer YOUR_BEARER_TOKEN_IF_ANY" # This might be overridden or unnecessary if jwtToken cookie is primary
         })
 
-        self._load_cookies() 
-
-        # --- Enhanced Cookie Logging ---
-        print(f"SERVER LOG: Current session cookies after loading for show {self.showID}:")
-        if self.session.cookies:
-            for cookie in self.session.cookies:
-                print(f"SERVER LOG: Cookie: Name='{cookie.name}', Value='{cookie.value[:30]}...', Domain='{cookie.domain}', Path='{cookie.path}'")
-        else:
-            print("SERVER LOG: No cookies in session after loading attempt.")
-        
-        cf_policy = self.session.cookies.get("CloudFront-Policy", domain=".kukufm.com") or self.session.cookies.get("CloudFront-Policy")
-        cf_sig = self.session.cookies.get("CloudFront-Signature", domain=".kukufm.com") or self.session.cookies.get("CloudFront-Signature")
-        cf_key = self.session.cookies.get("CloudFront-Key-Pair-Id", domain=".kukufm.com") or self.session.cookies.get("CloudFront-Key-Pair-Id")
-        jwt_token = self.session.cookies.get("jwtToken", domain="kukufm.com") or self.session.cookies.get("jwtToken")
-        print(f"SERVER LOG: Specific Check: jwtToken='{jwt_token[:30] if jwt_token else None}...', CF-Policy='{cf_policy[:30] if cf_policy else None}...', CF-Signature='{cf_sig[:30] if cf_sig else None}...', CF-Key-Pair-Id='{cf_key}'")
-        # --- End Enhanced Cookie Logging ---
-
+        self._load_cookies() # This method will now prioritize user_provided_cookies_config
 
         print(f"SERVER LOG: Initializing KuKu for show ID: {self.showID} (URL: {url})")
         try:
@@ -60,10 +52,12 @@ class KuKu:
             data = response.json()
         except requests.exceptions.RequestException as e:
             print(f"SERVER LOG: ❌ Error fetching initial show data for {url}: {e}")
+            print(f"SERVER LOG: Headers sent: {self.session.headers}")
+            print(f"SERVER LOG: Cookies sent: {self.session.cookies.get_dict()}")
             raise 
         except json.JSONDecodeError as e:
             print(f"SERVER LOG: ❌ Error decoding JSON for initial show data from {url}: {e}")
-            print(f"SERVER LOG: Response text: {response.text[:500]}") # Log more of the response
+            print(f"SERVER LOG: Response text: {response.text[:500]}") 
             raise
 
         show = data.get('show', {})
@@ -96,50 +90,84 @@ class KuKu:
         print(f"SERVER LOG: Title: {self.metadata['title']}, Episodes: {self.metadata['nEpisodes']}")
 
     def _load_cookies(self):
-        cookies_loaded = False
-        if self.cookies_file_path_config:
-            print(f"SERVER LOG: ℹ️ Attempting to load cookies from configured file: '{self.cookies_file_path_config}'")
-            if self._load_cookies_from_json(self.cookies_file_path_config):
-                cookies_loaded = True
+        """
+        Loads cookies with priority:
+        1. User-provided cookies (passed to __init__).
+        2. browser_cookie3 (if available and user cookies not provided).
+        3. Server-side default cookies.json (if available and others not provided).
+        """
+        cookies_loaded_source = None
+
+        # 1. Try user-provided cookies first
+        if self.user_provided_cookies_config and isinstance(self.user_provided_cookies_config, list):
+            print(f"SERVER LOG: ℹ️ Attempting to load user-provided cookies ({len(self.user_provided_cookies_config)} items)...")
+            loaded_count = 0
+            for cookie_dict in self.user_provided_cookies_config:
+                if 'name' in cookie_dict and 'value' in cookie_dict:
+                    # Ensure domain is correctly formatted for requests.Session
+                    domain_val = cookie_dict.get('domain')
+                    if domain_val and not domain_val.startswith('.'): # requests prefers leading dot for domain-wide cookies
+                        if "kukufm.com" in domain_val: # Only adjust for relevant domains
+                             # Check if it's a subdomain or the main domain to avoid double dots like "..kukufm.com"
+                            if domain_val == "kukufm.com" or not domain_val.count('.') > 1 : # e.g. kukufm.com or .kukufm.com
+                                pass # Keep as is or ensure leading dot if appropriate
+                            elif not cookie_dict.get('hostOnly', False): # For subdomains, ensure leading dot if not hostOnly
+                                domain_val = '.' + domain_val
+                    
+                    self.session.cookies.set(
+                        name=cookie_dict['name'],
+                        value=cookie_dict['value'],
+                        domain=domain_val,
+                        path=cookie_dict.get('path', '/'),
+                        secure=cookie_dict.get('secure', False),
+                        expires=cookie_dict.get('expirationDate') # requests handles Unix timestamp
+                    )
+                    loaded_count += 1
+            if loaded_count > 0:
+                print(f"SERVER LOG: ✅ Successfully loaded {loaded_count} user-provided cookies.")
+                cookies_loaded_source = "User Input"
             else:
-                print(f"SERVER LOG: ⚠️ Failed to load cookies from '{self.cookies_file_path_config}'.")
+                print("SERVER LOG: ⚠️ No valid user-provided cookies were loaded from the input list.")
         
-        if not cookies_loaded:
+        # 2. Try browser_cookie3 if user cookies were not provided or failed
+        if not cookies_loaded_source:
             try:
                 import browser_cookie3
-                print("SERVER LOG: ℹ️ Attempting to load cookies using browser_cookie3...")
+                print("SERVER LOG: ℹ️ No user cookies provided, attempting browser_cookie3...")
                 cj = browser_cookie3.load(domain_name='kukufm.com')
                 if len(cj) > 0: 
                     self.session.cookies.update(cj)
                     print("SERVER LOG: ✅ Successfully loaded cookies using browser_cookie3.")
-                    cookies_loaded = True
-                    # self._check_essential_cookies("browser_cookie3") # This will be checked after all load attempts
+                    cookies_loaded_source = "browser_cookie3"
                 else:
                     print("SERVER LOG: ℹ️ browser_cookie3 did not find cookies for kukufm.com.")
             except ImportError:
                 print("SERVER LOG: ℹ️ browser_cookie3 not installed. Skipping.")
             except Exception as e: 
-                print(f"SERVER LOG: ⚠️ An error occurred while trying to load cookies with browser_cookie3: {e}")
+                print(f"SERVER LOG: ⚠️ An error occurred with browser_cookie3: {e}")
 
-        if not cookies_loaded:
-            default_cookie_file = Path("cookies.json") 
-            print(f"SERVER LOG: ℹ️ Attempting to load cookies from default '{default_cookie_file}'...")
-            if self._load_cookies_from_json(str(default_cookie_file)): 
-                cookies_loaded = True
+        # 3. Try server-side default cookies.json if still no cookies
+        if not cookies_loaded_source and self.cookies_file_path_config:
+            print(f"SERVER LOG: ℹ️ No user/browser_cookie3 cookies, attempting server default: '{self.cookies_file_path_config}'")
+            if self._load_cookies_from_json_file(self.cookies_file_path_config): # Renamed for clarity
+                cookies_loaded_source = f"Server File ({self.cookies_file_path_config})"
+            else:
+                print(f"SERVER LOG: ⚠️ Failed to load cookies from server default '{self.cookies_file_path_config}'.")
         
-        if not cookies_loaded:
-            print("\nSERVER LOG: ‼️ IMPORTANT: No cookies were loaded by any method.")
+        if not cookies_loaded_source:
+            print("\nSERVER LOG: ‼️ IMPORTANT: No cookies were loaded by any method for this session.")
         else:
-            print("SERVER LOG: Cookie loading process completed.")
-        self._check_essential_cookies("Final Check After All Load Attempts")
+            print(f"SERVER LOG: Cookies successfully loaded into session from: {cookies_loaded_source}.")
+        
+        self._check_essential_cookies(f"Final Check (Source: {cookies_loaded_source or 'None'})")
 
 
     def _check_essential_cookies(self, source_description: str):
+        # ... (this method remains the same as in the Canvas ID: kuku_downloader_web_py_full) ...
         print(f"SERVER LOG: --- Cookie Check ({source_description}) ---")
         essential_cookies = ["jwtToken", "CloudFront-Policy", "CloudFront-Signature", "CloudFront-Key-Pair-Id"]
         found_all_essential = True
         for c_name in essential_cookies:
-            # Try getting with specific domain first, then without (more general)
             cookie_val = self.session.cookies.get(c_name, domain="kukufm.com") or \
                          self.session.cookies.get(c_name, domain=".kukufm.com") or \
                          self.session.cookies.get(c_name)
@@ -153,54 +181,49 @@ class KuKu:
         print(f"SERVER LOG: --- End Cookie Check ---")
 
 
-    def _load_cookies_from_json(self, cookie_filename_str="cookies.json") -> bool:
+    def _load_cookies_from_json_file(self, cookie_filename_str: str) -> bool: # Renamed from _load_cookies_from_json
+        """Loads cookies from a specified JSON file into the session."""
         cookie_file_path = Path(cookie_filename_str)
         if not cookie_file_path.is_absolute():
-             script_dir_or_cwd = Path(__file__).parent if "__file__" in locals() else Path.cwd()
-             cookie_file_path = script_dir_or_cwd / cookie_filename_str
+             # If it's a relative path for the server-side default, assume it's next to this script
+             script_dir = Path(__file__).parent if "__file__" in locals() else Path.cwd()
+             cookie_file_path = script_dir / cookie_filename_str
 
         if not cookie_file_path.exists():
-            if cookie_filename_str == "cookies.json": # Only log if it's the default local file attempt
-                 print(f"SERVER LOG: ℹ️ Default cookie file '{cookie_filename_str}' not found at '{cookie_file_path.resolve()}'.")
+            print(f"SERVER LOG: ℹ️ Server cookie file '{cookie_filename_str}' not found at '{cookie_file_path.resolve()}'.")
             return False
         
-        print(f"SERVER LOG: Attempting to load cookies from JSON file: {cookie_file_path.resolve()}")
+        print(f"SERVER LOG: Attempting to load cookies from server JSON file: {cookie_file_path.resolve()}")
         try:
             with open(cookie_file_path, 'r', encoding='utf-8') as f: cookies_data = json.load(f)
             if not isinstance(cookies_data, list):
                 print(f"SERVER LOG: ⚠️ '{cookie_file_path}' content is not a list."); return False
             
             loaded_count = 0
-            for c in cookies_data:
-                if 'name' in c and 'value' in c:
-                    domain_val = c.get('domain')
-                    # Ensure domain starts with a dot if it's for all subdomains and not hostOnly
-                    # and if it's a relevant domain.
+            for c_dict in cookies_data:
+                if 'name' in c_dict and 'value' in c_dict:
+                    domain_val = c_dict.get('domain')
                     if domain_val and "kukufm.com" in domain_val:
-                        if not c.get('hostOnly', False) and not domain_val.startswith('.'):
+                        if not c_dict.get('hostOnly', False) and not domain_val.startswith('.'):
                             domain_val = '.' + domain_val
                     elif domain_val and "kukufm.com" not in domain_val:
-                        # Skip cookies not for kukufm.com to avoid polluting session for other domains
-                        # print(f"SERVER LOG: Skipping cookie not for kukufm.com: {c.get('name')} for domain {domain_val}")
                         continue 
                     
                     self.session.cookies.set(
-                        name=c['name'],value=c['value'],
-                        domain=domain_val, # Pass None if not specified in JSON, requests handles it
-                        path=c.get('path','/'),
-                        secure=c.get('secure', False),
-                        expires=c.get('expirationDate') 
+                        name=c_dict['name'],value=c_dict['value'],
+                        domain=domain_val, path=c_dict.get('path','/'),
+                        secure=c_dict.get('secure', False), expires=c_dict.get('expirationDate')
                     )
                     loaded_count +=1
-            print(f"SERVER LOG: ✅ Loaded {loaded_count} cookies from '{cookie_file_path}'.")
-            # self._check_essential_cookies(str(cookie_file_path)); # Check is done after all load attempts
-            return True
+            print(f"SERVER LOG: ✅ Loaded {loaded_count} cookies from server file '{cookie_file_path}'.")
+            return True # _check_essential_cookies will be called once after all loading attempts
         except json.JSONDecodeError:
             print(f"SERVER LOG: ❌ Error decoding '{cookie_file_path}'. Ensure it's valid JSON.")
         except Exception as e: 
             print(f"SERVER LOG: ❌ Error loading cookies from '{cookie_file_path}': {e}")
         return False
 
+    # --- Static method clean remains the same ---
     @staticmethod
     def clean(name: str) -> str:
         if not isinstance(name, str): name = str(name)
@@ -208,84 +231,74 @@ class KuKu:
         name = re.sub(r'[\\/*?"<>|$]', '', name); name = re.sub(r'\s+', ' ', name).strip() 
         return name if name else "Unknown"
 
+    # --- Method _ffmpeg_headers remains the same ---
     def _ffmpeg_headers(self) -> str:
         cookies = []
         for name in ["CloudFront-Policy", "CloudFront-Signature", "CloudFront-Key-Pair-Id"]:
             if val := self.session.cookies.get(name, domain='.kukufm.com') or self.session.cookies.get(name):
                 cookies.append(f"{name}={val}")
-        
-        if not cookies:
-            print("SERVER LOG: _ffmpeg_headers: ⚠️ No CloudFront cookies found in session for FFMPEG.")
-            return ""
-        header_string = f"Cookie: {'; '.join(cookies)}\r\n"
-        print(f"SERVER LOG: _ffmpeg_headers: Generated FFMPEG Cookie header: {header_string[:100]}...") # Log part of it
+        if not cookies: print("SERVER LOG: _ffmpeg_headers: ⚠️ No CloudFront cookies found in session for FFMPEG.")
+        header_string = f"Cookie: {'; '.join(cookies)}\r\n" if cookies else ""
+        if header_string: print(f"SERVER LOG: _ffmpeg_headers: Generated FFMPEG Cookie header: {header_string[:100]}...")
         return header_string
 
-
+    # --- Method download_episode remains largely the same (no conversion logic) ---
     def download_episode(self, ep_data: dict, album_folder_path: Path, cover_file_path: Path | None):
         episode_title_cleaned = KuKu.clean(ep_data.get('title', 'Untitled Episode'))
         content_info = ep_data.get('content', {}); 
         hls_stream_url = content_info.get('hls_url') or content_info.get('premium_audio_url')
         
-        print(f"SERVER LOG: Preparing to download episode '{episode_title_cleaned}'. HLS URL: {hls_stream_url}")
+        # print(f"SERVER LOG: Preparing to download episode '{episode_title_cleaned}'. HLS URL: {hls_stream_url}") # Logged by callback
 
         if not hls_stream_url:
-            print(f"SERVER LOG: ⛔ Ep '{episode_title_cleaned}': No stream URL found.")
+            # print(f"SERVER LOG: ⛔ Ep '{episode_title_cleaned}': No stream URL found.") # Logged by callback
             return episode_title_cleaned, False
 
         idx_str = str(ep_data.get('index',0)).zfill(len(str(self.metadata['nEpisodes'])))
         base_fn = f"{idx_str}. {episode_title_cleaned}"
         audio_p = album_folder_path/f"{base_fn}.m4a"; srt_p = album_folder_path/f"{base_fn}.srt"
 
-        if audio_p.exists() and audio_p.stat().st_size > 1024: # Check if > 1KB
-            print(f"SERVER LOG: ✅ Ep '{episode_title_cleaned}': Already exists and seems complete.")
+        if audio_p.exists() and audio_p.stat().st_size > 1024: 
+            # print(f"SERVER LOG: ✅ Ep '{episode_title_cleaned}': Already exists.") # Logged by callback
             return episode_title_cleaned, True
 
-        # print(f"SERVER LOG: ⬇️ Downloading: {episode_title_cleaned}") # Handled by tqdm in downAlbum
         ffmpeg_cmd_headers = self._ffmpeg_headers(); 
         cmd = ["ffmpeg","-y"]
-        if ffmpeg_cmd_headers: # Only add headers if they are present and not empty
-             cmd.extend(["-headers", ffmpeg_cmd_headers])
-        
-        cmd.extend(["-user_agent",self.session.headers['User-Agent'],"-rw_timeout","30000000","-timeout","30000000", # 30s timeouts
+        if ffmpeg_cmd_headers: cmd.extend(["-headers", ffmpeg_cmd_headers])
+        cmd.extend(["-user_agent",self.session.headers['User-Agent'],"-rw_timeout","30000000","-timeout","30000000",
                     "-reconnect","1","-reconnect_streamed","1","-reconnect_delay_max","10",
                     "-i",hls_stream_url,"-c","copy","-bsf:a","aac_adtstoasc",
                     "-hide_banner","-loglevel","error",str(audio_p)])
         
-        print(f"SERVER LOG: Executing FFMPEG for '{episode_title_cleaned}': {' '.join(cmd[:5])}... -i {hls_stream_url} ...") # Log partial command for brevity
+        # print(f"SERVER LOG: Executing FFMPEG for '{episode_title_cleaned}'...") # Logged by callback
 
         try: 
-            # Using check=False to manually inspect output
             process_result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', check=False)
-            
-            print(f"SERVER LOG: FFMPEG STDOUT for '{episode_title_cleaned}':\n{process_result.stdout.strip() if process_result.stdout else 'No STDOUT'}")
-            print(f"SERVER LOG: FFMPEG STDERR for '{episode_title_cleaned}':\n{process_result.stderr.strip() if process_result.stderr else 'No STDERR'}")
-
             if process_result.returncode != 0:
-                print(f"SERVER LOG: ❌ FFMPEG failed for '{episode_title_cleaned}' with exit code {process_result.returncode}")
+                # print(f"SERVER LOG: ❌ FFMPEG failed for '{episode_title_cleaned}' with exit code {process_result.returncode}") # Logged by callback
+                # print(f"FFMPEG STDERR:\n{process_result.stderr.strip() if process_result.stderr else 'No STDERR'}") # Logged by callback
                 if audio_p.exists() and audio_p.stat().st_size == 0: audio_p.unlink(missing_ok=True)
                 return episode_title_cleaned, False
-        
         except FileNotFoundError: 
-            print(f"SERVER LOG: ❌ FFMPEG not found for '{episode_title_cleaned}'. Ensure FFMPEG is installed and in PATH.")
+            # print(f"SERVER LOG: ❌ FFMPEG not found for '{episode_title_cleaned}'.") # Logged by callback
             return episode_title_cleaned, False
         except Exception as e: 
-            print(f"SERVER LOG: ❌ Unexpected FFMPEG error for '{episode_title_cleaned}': {e}")
+            # print(f"SERVER LOG: ❌ Unexpected FFMPEG error for '{episode_title_cleaned}': {e}") # Logged by callback
             if audio_p.exists() and audio_p.stat().st_size == 0: audio_p.unlink(missing_ok=True)
             return episode_title_cleaned, False
         
-        if not audio_p.exists() or audio_p.stat().st_size < 1024: # Check if file is too small or non-existent
-            print(f"SERVER LOG: ❌ Downloaded file for '{episode_title_cleaned}' is missing or too small after FFMPEG. Size: {audio_p.stat().st_size if audio_p.exists() else 'N/A'}")
+        if not audio_p.exists() or audio_p.stat().st_size < 1024: 
+            # print(f"SERVER LOG: ❌ Downloaded file for '{episode_title_cleaned}' is missing or too small.") # Logged by callback
             return episode_title_cleaned, False
 
         if srt_url := content_info.get('subtitle_url'):
             try:
-                print(f"SERVER LOG: 💬 Downloading subtitles for: {episode_title_cleaned}")
+                # print(f"SERVER LOG: 💬 Downloading subtitles for: {episode_title_cleaned}") # Logged by callback
                 with open(srt_p,'w',encoding='utf-8') as f: f.write(self.session.get(srt_url,timeout=10).text)
             except Exception as e: print(f"SERVER LOG: ⚠️ Subtitle download error for '{episode_title_cleaned}': {e}")
 
         try:
-            print(f"SERVER LOG: 🏷️ Tagging: {episode_title_cleaned}")
+            # print(f"SERVER LOG: 🏷️ Tagging: {episode_title_cleaned}") # Logged by callback
             tags=MP4(str(audio_p)); tags['\xa9nam']=[episode_title_cleaned]; tags['\xa9ART']=[self.metadata['author']]
             tags['aART']=[self.metadata['author']]; tags['\xa9alb']=[self.metadata['title']]
             tags['trkn']=[(ep_data.get('index',1),self.metadata['nEpisodes'])]
@@ -300,15 +313,15 @@ class KuKu:
             for k,v in itunes_tags.items():tags[f'----:com.apple.iTunes:{k}']=v.encode('utf-8')
             if cover_file_path and cover_file_path.exists() and cover_file_path.stat().st_size > 0:
                 with open(cover_file_path,'rb') as img_f: tags['covr']=[MP4Cover(img_f.read())]
-            else: print(f"SERVER LOG: ⚠️ Cover not found/empty for tagging '{episode_title_cleaned}'.")
             tags.save()
         except Exception as e: 
-            print(f"SERVER LOG: ❌ Tagging error for '{episode_title_cleaned}': {e}")
+            # print(f"SERVER LOG: ❌ Tagging error for '{episode_title_cleaned}': {e}") # Logged by callback
             return episode_title_cleaned, False
         
-        print(f"SERVER LOG: 👍 Finished processing episode: {episode_title_cleaned}")
+        # print(f"SERVER LOG: 👍 Finished processing episode: {episode_title_cleaned}") # Logged by callback
         return episode_title_cleaned, True
 
+    # --- Method download_cover remains the same ---
     def download_cover(self, image_url: str, save_to_path: Path) -> bool:
         if not image_url: print("SERVER LOG: ⚠️ No cover URL."); return False
         if save_to_path.exists() and save_to_path.stat().st_size > 100: return True
@@ -325,9 +338,10 @@ class KuKu:
         except Exception as e: print(f"SERVER LOG: ⚠️ Cover download error: {e}")
         if save_to_path.exists(): save_to_path.unlink(missing_ok=True)
         return False
+    
+    # --- export_metadata_file method removed as per user request ---
 
-    # export_metadata_file method removed as per user request to remove metadata export feature
-
+    # --- Method downAlbum (with episode_status_callback) remains largely the same ---
     def downAlbum(self, episode_status_callback: Callable[[str, bool, int, int, str], None] | None = None):
         album_folder_name_cleaned = f"{self.metadata['title']} ({self.metadata['date'][:4] if self.metadata['date'] else 'ND'}) [{self.metadata['lang']}]"
         self.album_path = self.show_content_download_root_dir / self.clean(self.metadata['lang']) / self.clean(self.metadata['type']) / self.clean(album_folder_name_cleaned)
@@ -375,18 +389,17 @@ class KuKu:
                                          desc=f"Processing '{self.metadata['title']}'", 
                                          unit="ep", file=sys.stdout, 
                                          bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]',
-                                         disable=False) 
+                                         disable=True) # Disable tqdm for web app server logs by default
 
             for future in progress_bar_iterator: 
                 ep_item = futures_map[future]
                 ep_title_cleaned = KuKu.clean(ep_item.get('title', 'Unknown Episode'))
                 processed_episodes_count += 1
                 
-                success_flag = False # Default to failure
+                success_flag = False 
                 status_msg_for_callback = f"Starting processing for: {ep_title_cleaned}"
                 try:
-                    # The actual download and tagging happens here
-                    _, success_flag = future.result() # title is already in ep_title_cleaned
+                    _, success_flag = future.result() 
                     if success_flag:
                         ok_dl_count+=1
                         status_msg_for_callback = f"Successfully processed: {ep_title_cleaned}"
@@ -406,7 +419,8 @@ class KuKu:
                         total_episodes=total_episodes_to_process,
                         status_message=status_msg_for_callback
                     )
-                progress_bar_iterator.set_postfix_str(f"Last: {ep_title_cleaned[:20]}... ({'OK' if success_flag else 'FAIL'})")
+                # tqdm postfix update is less critical if callback handles UI update
+                # progress_bar_iterator.set_postfix_str(f"Last: {ep_title_cleaned[:20]}... ({'OK' if success_flag else 'FAIL'})")
         
         print(f"\nSERVER LOG: 🏁 Download summary for '{self.metadata['title']}': {ok_dl_count}/{total_episodes_to_process} successful.")
         if fail_titles_list: print(f"   SERVER LOG: ❌ Failed episodes: {', '.join(fail_titles_list)}")
@@ -414,3 +428,4 @@ class KuKu:
         # Metadata export logic removed
         
         print(f"\nSERVER LOG: 🎉 Finished show (in KuKu class): {self.metadata['title']}")
+

@@ -1,0 +1,21 @@
+@app.route('/sitemap.xml')
+def sitemap_xml():
+    lastmod_date = datetime.now().strftime("%Y-%m-%d")
+
+    sitemap_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>{request.url_root.rstrip('/')}</loc>
+    <lastmod>{lastmod_date}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <!-- If you add other static, publicly indexable pages like an 'About' or 'FAQ' page, 
+       add their <url> entries here. 
+       For a tool like this, the main page is often the only one relevant for a sitemap.
+  -->
+</urlset>
+"""
+    response = make_response(sitemap_content)
+    response.headers["Content-Type"] = "application/xml"
+    return response
