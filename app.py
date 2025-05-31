@@ -285,6 +285,13 @@ def api_data():
 def serve_static_files(filename):
     return send_from_directory(str(APP_ROOT / 'static'), filename)
 
+# --- Google Site Verification Route ---
+@app.route('/google1234567890abcdef.html')
+def google_verification():
+    return send_from_directory(str(APP_ROOT / 'static'), 'google1234567890abcdef.html')
+# --------------------------------------
+
+
 if __name__ == '__main__':
     print("KuKu FM Web Downloader - Flask App Starting...")
     print(f"Flask app running on http://127.0.0.1:5000 or http://localhost:5000")
