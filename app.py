@@ -1,5 +1,5 @@
 # app.py
-from flask import Flask, render_template, request, jsonify, send_from_directory, Response, session
+from flask import Flask, render_template, request, jsonify, send_from_directory, Response, session, make_response
 from pathlib import Path
 import threading
 import os
@@ -9,8 +9,9 @@ import uuid
 import zipfile 
 import shutil 
 import time 
-import json # <<< IMPORT ADDED HERE
+import json 
 from flask_apscheduler import APScheduler 
+from datetime import datetime # For sitemap lastmod
 
 try:
     from kuku_downloader import KuKu 
@@ -117,34 +118,72 @@ def index(): return render_template('index.html')
 @app.route('/favicon.ico')
 def favicon(): return Response(status=204)
 
+@app.route('/robots.txt')
+def robots_txt():
+    robots_content = """User-agent: *
+Allow: /
+Allow: /static/
+Disallow: /api/
+Disallow: /status/
+Disallow: /fetch_zip/
+Disallow: /download
+Disallow: /favicon.ico
+
+Sitemap: {base_url}/sitemap.xml
+""".format(base_url=request.url_root.rstrip('/'))
+    response = make_response(robots_content)
+    response.headers["Content-Type"] = "text/plain"
+    return response
+
+@app.route('/sitemap.xml')
+def sitemap_xml():
+    lastmod_date = datetime.now().strftime("%Y-%m-%d")
+    sitemap_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>{request.url_root.rstrip('/')}</loc>
+    <lastmod>{lastmod_date}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>"""
+    response = make_response(sitemap_content)
+    response.headers["Content-Type"] = "application/xml"
+    return response
+
+# --- Google Site Verification Route ---
+# IMPORTANT: Replace 'google1234567890abcdef.html' with the actual filename Google provided you.
+# Also, make sure this HTML file is in the ROOT directory of your project (same level as app.py).
+@app.route('/google1234567890abcdef.html')
+def google_verification():
+    google_file_name = 'google1234567890abcdef.html' # Replace with your actual file name
+    try:
+        # Serve from APP_ROOT (where app.py is)
+        return send_from_directory(str(APP_ROOT), google_file_name)
+    except FileNotFoundError:
+        logging.error(f"Google verification file '{google_file_name}' not found in APP_ROOT: {APP_ROOT}")
+        return "Google verification file not found.", 404
+# --- End Google Site Verification Route ---
+
+
 @app.route('/api/set_user_cookies', methods=['POST'])
 def set_user_cookies():
     data = request.get_json()
     if not data or 'cookies_json_string' not in data:
         return jsonify({"status": "error", "message": "No cookie data provided."}), 400
-
     cookies_json_string = data['cookies_json_string']
     try:
-        parsed_cookies = json.loads(cookies_json_string) # Now json is defined
-        if not isinstance(parsed_cookies, list):
-            raise ValueError("Cookie data must be a JSON array of cookie objects.")
-        
+        parsed_cookies = json.loads(cookies_json_string) 
+        if not isinstance(parsed_cookies, list): raise ValueError("Cookie data must be a JSON array.")
         for cookie_obj in parsed_cookies:
             if not all(k in cookie_obj for k in ('name', 'value')):
-                raise ValueError("Each cookie object must have 'name' and 'value' keys.")
-        
+                raise ValueError("Each cookie object must have 'name' and 'value'.")
         session['user_kuku_cookies'] = parsed_cookies 
         logging.info(f"User cookies set in session. Count: {len(parsed_cookies)}")
         return jsonify({"status": "success", "message": "Cookies saved successfully for this session."})
-    except json.JSONDecodeError: # Now json is defined
-        logging.warning("Failed to parse user cookie JSON string.")
-        return jsonify({"status": "error", "message": "Invalid JSON format for cookies."}), 400
-    except ValueError as ve:
-        logging.warning(f"Invalid cookie data structure: {ve}")
-        return jsonify({"status": "error", "message": str(ve)}), 400
-    except Exception as e:
-        logging.error(f"Error setting user cookies: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": "An unexpected error occurred while saving cookies."}), 500
+    except json.JSONDecodeError: return jsonify({"status": "error", "message": "Invalid JSON format for cookies."}), 400
+    except ValueError as ve: return jsonify({"status": "error", "message": str(ve)}), 400
+    except Exception as e: logging.error(f"Error setting user cookies: {e}", exc_info=True); return jsonify({"status": "error", "message": "Error saving cookies."}), 500
 
 @app.route('/api/clear_user_cookies', methods=['POST'])
 def clear_user_cookies():
@@ -174,14 +213,10 @@ def start_download_route():
             return jsonify({"status":"warning", "message":f"Download for {kuku_url} is already processing."}), 409
 
     download_path_for_kuku_instance = DOWNLOAD_BASE_DIR 
-    
     user_specific_cookies_list = session.get('user_kuku_cookies') 
     server_default_cookies_file = None
     if not user_specific_cookies_list: 
         server_default_cookies_file = str(DEFAULT_COOKIES_FILE) if DEFAULT_COOKIES_FILE.exists() else None
-        logging.info(f"Task {task_id}: No user-specific cookies in session, using server default: {server_default_cookies_file}")
-    else:
-        logging.info(f"Task {task_id}: Using user-specific cookies from session ({len(user_specific_cookies_list)} cookies).")
     
     logging.info(f"Download request for URL: {kuku_url} -> Task ID: {task_id}")
         
@@ -196,14 +231,7 @@ def start_download_route():
         downloader = None 
         try:
             with app_ctx: 
-                logging.info(f"Thread: Initializing KuKu for {url} (Task: {current_task_id})")
-                downloader = KuKu(
-                    url=url, 
-                    cookies_file_path=srv_cookies_p, 
-                    user_cookies_list=user_cookies_l, 
-                    show_content_download_root_dir=dl_path_kuku
-                )
-                
+                downloader = KuKu(url=url, cookies_file_path=srv_cookies_p, user_cookies_list=user_cookies_l, show_content_download_root_dir=dl_path_kuku)
                 show_title = downloader.metadata.get('title', 'Unknown Show')
                 total_eps = downloader.metadata.get('nEpisodes', 0)
                 download_tasks_status[current_task_id].update({"show_title":show_title,"total_episodes":total_eps,"message":f"Preparing '{show_title}'...","timestamp":time.time()})
@@ -284,20 +312,6 @@ def api_data():
 @app.route('/static/<path:filename>')
 def serve_static_files(filename):
     return send_from_directory(str(APP_ROOT / 'static'), filename)
-
-# --- Google Site Verification Route ---
-# IMPORTANT: Replace 'google1234567890abcdef.html' with the actual filename Google provided you.
-# Also, make sure this HTML file is in the ROOT directory of your project (same level as app.py).
-@app.route('/google1234567890abcdef.html')
-def google_verification():
-    google_file_name = 'google1234567890abcdef.html' # Replace with your actual file name
-    try:
-        # Serve from APP_ROOT (where app.py is)
-        return send_from_directory(str(APP_ROOT), google_file_name)
-    except FileNotFoundError:
-        logging.error(f"Google verification file '{google_file_name}' not found in APP_ROOT: {APP_ROOT}")
-        return "Google verification file not found.", 404
-# --- End Google Site Verification Route ---
 
 if __name__ == '__main__':
     print("KuKu FM Web Downloader - Flask App Starting...")
