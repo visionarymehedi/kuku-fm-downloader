@@ -2,13 +2,11 @@ User-agent: *
 Allow: /
 Allow: /static/
 
-
 Disallow: /api/
 Disallow: /download
 Disallow: /status/
 Disallow: /fetch_zip/
-Disallow: /favicon.ico # If you are serving a 204, no need for it to be crawled
+Disallow: /favicon.ico
 
-# Specify the location of your sitemap
-
+# Sitemap location
 Sitemap: https://kuku-fm-web-downloader.onrender.com/sitemap.xml
